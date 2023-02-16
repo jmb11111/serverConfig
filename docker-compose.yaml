@@ -1,0 +1,212 @@
+version: "3.8"
+volumes:
+  database:
+    driver: local
+  geoip:
+    driver: local
+  portainer_data:
+    driver: local
+  postgresql2:
+    driver: local
+  acme:
+    driver: local
+  octoprint:
+  unifi:
+    driver: local
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    ports:
+      - 80:80
+      - 443:443
+    labels:                     # Labels - finally section where you define if container should be exposed, under what domain name, IP, path etc. You will be creating labels for each container that you want Traefik to route packets to from the Internet.                                       
+      - traefik.enable=true     # ^ Enabling Traefik container to be exposed by itself
+      - traefik.http.middlewares.admin.basicauth.users=admin:{SHA}/jIOs1SoLMVGd6FMOlt5mF6Ega0=  # * Generate SHA1 to protect access to the Web UI here: https://hostingcanada.org/htpasswd-generator - on this page I used: user/password = admin/greenfrog and got htpasswd: admin:{SHA}/jIOs1SoLMVGd6FMOlt5mF6Ega0=  (https://doc.traefik.io/traefik/middlewares/basicauth/). You can reuse this line multiple times under different containers to protect access to them.                                                                                 # Define route/router called "thisproxytls"
+      - traefik.http.services.thisproxytls.loadbalancer.server.port=8080            # ^ Define loadBalancer port for WebUI
+      - traefik.http.routers.thisproxytls.rule=Host(`blasbalg.me`)              # * Define URL that will be redirected to this container on port 8080 from https
+      - traefik.http.routers.thisproxytls.entrypoints=websecure                     # ^ Just because we defined redirection where any request from the Internet received on port 80 - http will be redirected to port 443 https we open websecure entrypoint as this is from where we will be receiving all the traffick anyway.
+      - traefik.http.routers.thisproxytls.service=api@internal                      # ^ Enable WebUI service on this specific router.
+      - traefik.http.routers.thisproxytls.middlewares=admin                         # ^ Enabling authentication on this specific router.
+      - traefik.http.routers.thisproxytls.tls.certresolver=letsencrypt  
+    command:
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - "--providers.file.directory=/traefik"
+      - "--providers.file.watch=true"
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email=josh@blasbalg.dev  # replace with your email
+      - --certificatesresolvers.letsencrypt.acme.storage=acme/acme.json
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --entryPoints.web.http.redirections.entryPoint.to=websecure
+      - --entryPoints.web.http.redirections.entryPoint.scheme=https
+      - --entryPoints.web.http.redirections.entrypoint.permanent=true
+      - --certificatesResolvers.letsencrypt.acme.dnsChallenge=true # * DNS challenge, there are other ways of proving that you owned domain name defined below (https://doc.traefik.io/traefik/https/acme/#dnschallenge)
+      - --certificatesResolvers.letsencrypt.acme.dnsChallenge.provider=cloudflare
+      # - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+    environment:       
+      - CF_API_EMAIL=josh@blasbalg.dev               
+      - CF_API_KEY=1167cc8292739efd9fbd64f54c88b6a529777    
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - acme:/acme
+      - ./volumes/traefik/logs:/logs  
+      - ./volumes/traefik:/traefik 
+    
+  whoami:
+    image: "traefik/whoami"
+    container_name: "simple-service"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.whoami.rule=Host(`whoami.blasbalg.me`)  # replace gf.cloudwatch.net with you domain name, leave /gf unchanged for now  
+      - traefik.http.routers.whoami.entrypoints=websecure
+      - traefik.http.routers.whoami.tls.certresolver=letsencrypt
+    ports:
+      - 8084:80
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    network_mode: host
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - VERSION=docker
+    volumes:
+      - type: bind
+        source: /home/jblasbalg/main-pool/media/tv
+        target: /tv
+      - type: bind
+        source: /home/jblasbalg/main-pool/media/movies
+        target: /movies
+      - type: bind
+        source: /home/jblasbalg/main-pool/media/gopro
+        target: /gopro
+  # postgresql:
+  #   image: postgres:14.1-alpine
+  #   restart: always
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgresql2:/var/lib/postgresql/data
+  #   env_file:
+  #     - .env
+  # watchtower:
+  #   image: containrrr/watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   # check for updates once an hour (interval is in seconds)
+  #   command: --interval 3600 --cleanup
+  # code-server:
+  #   image: lscr.io/linuxserver/code-server:latest
+  #   container_name: code-server
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - PASSWORD=${CODE_PW} 
+  #     - TZ=Europe/London
+  #     - DEFAULT_WORKSPACE=/main-pool #optional
+  #   volumes:
+  #     - /home/jblasbalg/main-pool/docker/appdata/config:/config
+  #     - /home/jblasbalg/main-pool:/main-pool
+  #   ports:
+  #     - "8443:8443"
+  #   restart: unless-stopped
+  #   labels:
+  #     - traefik.http.routers.code-server.rule=Host(`code.${DOMAIN}`)
+  #     - traefik.http.routers.code-server.entrypoints=websecure
+  #     - traefik.http.routers.code-server.tls=true
+  #     - traefik.http.routers.code-server.tls.certresolver=${CERT_RESOLVER}
+  portainer:
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/jblasbalg/main-pool/docker/portainer_data:/data
+    labels:
+      # Frontend
+      - traefik.enable=true
+      - traefik.http.routers.frontend.rule=Host(`dock.${DOMAIN}`)
+      - traefik.http.routers.frontend.entrypoints=websecure
+      - traefik.http.services.frontend.loadbalancer.server.port=9000
+      - traefik.http.routers.frontend.service=frontend
+      - traefik.http.routers.frontend.tls.certresolver=${CERT_RESOLVER}
+
+      # Edge
+      - traefik.http.routers.edge.rule=Host(`edge.${DOMAIN}`)
+      - traefik.http.routers.edge.entrypoints=websecure
+      - traefik.http.services.edge.loadbalancer.server.port=8000
+      - traefik.http.routers.edge.service=edge
+      - traefik.http.routers.edge.tls.certresolver=${CERT_RESOLVER}
+  alpine-qbittorrent-openvpn:
+    volumes:
+      - "/home/jblasbalg/main-pool/media/tv:/tv"
+      - "/home/jblasbalg/main-pool/media/movies:/movies"
+      - "/home/jblasbalg/main-pool/docker/config:/config"
+      - "/etc/localtime:/etc/localtime:ro"
+    environment:
+      - OPENVPN_PROVIDER=PIA
+      - OPENVPN_CONFIG=ca_toronto
+      - OPENVPN_USERNAME=p4409344
+      - OPENVPN_PASSWORD=V4WuoX24iw
+      - PUID=1000
+      - PGID=1000
+      - LAN=192.168.0.0/16
+    ports:
+      - "8088:8080"
+    cap_add:
+      - NET_ADMIN
+    image: guillaumedsde/alpine-qbittorrent-openvpn:latest
+    labels:
+      - traefik.enable=true     # ^ Enabling Traefik container to be exposed by itself
+      - traefik.http.routers.qbittorrent.rule=Host(`tor.${DOMAIN}`)
+      - traefik.http.routers.qbittorrent.entrypoints=websecure
+      - traefik.http.routers.qbittorrent.tls=true
+      - traefik.http.routers.qbittorrent.tls.certresolver=${CERT_RESOLVER}
+  scrypted:
+    image: koush/scrypted
+    container_name: scrypted
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+        - ~/.scrypted/volume2:/server/volume
+        # modify and add the additional volume for Scrypted NVR
+        # - /media/external:/media/external
+    # logging is noisy and will unnecessarily wear on flash storage.
+    # scrypted has per device in memory logging that is preferred.
+    logging:
+        driver: "json-file"
+        options:
+            max-size: "10m"
+            max-file: "10"
+  unifi-controller:
+    image: lscr.io/linuxserver/unifi-controller:latest
+    container_name: unifi-controller
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - unifi:/config
+    ports:
+      - 8443:8443
+      - 3478:3478/udp
+      - 10001:10001/udp
+      - 8081:8080
+      - 1900:1900/udp #optional
+      - 8843:8843 #optional
+      - 8880:8880 #optional
+      - 6789:6789 #optional
+      - 5514:5514/udp #optional
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true     # ^ Enabling Traefik container to be exposed by itself
+      - traefik.http.routers.unifi-controller.rule=Host(`unifi.${DOMAIN}`)
+      - traefik.http.routers.unifi-controller.entrypoints=websecure
+      - traefik.http.routers.unifi-controller.tls=true
+      - traefik.http.routers.unifi-controller.tls.certresolver=${CERT_RESOLVER}
+      - traefik.http.services.unifi-controller.loadbalancer.server.port=8443
