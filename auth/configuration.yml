@@ -1,0 +1,49 @@
+server:
+  host: 0.0.0.0
+  port: 9091
+jwt_secret: Q/GWYLYn1ACQxVh9PjJ1Y9oQMR+sWy1zcoCDEpY9XKc=
+default_redirection_url: https://authelia.blasbalg.me
+
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+
+access_control:
+  default_policy: two_factor
+
+session:
+  name: authelia_session
+  secret: b82198b66f989284722ef829a0b666ab19514437a2c63e91d943e387507d5f5a
+  expiration: 3600 # 1 hour
+  inactivity: 300 # 5 minutes
+  domain: blasbalg.me # should match the domain you plan to protect
+
+
+regulation:
+  max_retries: 5
+  find_time: 2m
+  ban_time: 5m
+
+storage:
+  encryption_key: cfb900d7d36ae71d91eb5114c914b513ef174601d9e22bef97e3e1f27df79220 # Replace with your generated key
+  postgres:
+    host: 10.10.10.54 # or the hostname where your PostgreSQL is running
+    port: 5432
+    database: authelia
+    username: authelia_user
+    password: authelia_password
+
+notifier:
+  smtp:
+    username: joshua.blasbalg@gmail.com
+    password: giqf qdoo wrpc hopj
+    host: smtp.gmail.com
+    port: 587
+    sender: joshua.blasbalg@gmail.com
+    subject: "[Authelia] {title}"
+
+totp:
+  issuer: blasbalg.me
+  period: 30
+  skew: 1
+

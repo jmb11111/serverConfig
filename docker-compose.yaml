@@ -1,18 +1,19 @@
 version: "3.8"
 volumes:
-  database:
-    driver: local
-  geoip:
-    driver: local
   portainer_data:
     driver: local
   postgresql2:
     driver: local
-  acme:
-    driver: local
   octoprint:
   unifi:
     driver: local
+  pia:
+      driver: local
+  pia-shared:
+      driver: local
+  redis:
+    driver: local
+
 services:
   traefik:
     image: traefik:latest
@@ -22,13 +23,13 @@ services:
       - 443:443
     labels:                     # Labels - finally section where you define if container should be exposed, under what domain name, IP, path etc. You will be creating labels for each container that you want Traefik to route packets to from the Internet.                                       
       - traefik.enable=true     # ^ Enabling Traefik container to be exposed by itself
-      - traefik.http.middlewares.admin.basicauth.users=admin:{SHA}/jIOs1SoLMVGd6FMOlt5mF6Ega0=  # * Generate SHA1 to protect access to the Web UI here: https://hostingcanada.org/htpasswd-generator - on this page I used: user/password = admin/greenfrog and got htpasswd: admin:{SHA}/jIOs1SoLMVGd6FMOlt5mF6Ega0=  (https://doc.traefik.io/traefik/middlewares/basicauth/). You can reuse this line multiple times under different containers to protect access to them.                                                                                 # Define route/router called "thisproxytls"
+      - traefik.http.middlewares.admin.basicauth.users=jblasbalg:{SHA}UluJjmXGfxMkPRuldN+n0jXC6Bs=  # * Generate SHA1 to protect access to the Web UI here: https://hostingcanada.org/htpasswd-generator - on this page I used: user/password = admin/greenfrog and got htpasswd: admin:{SHA}/jIOs1SoLMVGd6FMOlt5mF6Ega0=  (https://doc.traefik.io/traefik/middlewares/basicauth/). You can reuse this line multiple times under different containers to protect access to them.                                                                                 # Define route/router called "thisproxytls"
       - traefik.http.services.thisproxytls.loadbalancer.server.port=8080            # ^ Define loadBalancer port for WebUI
       - traefik.http.routers.thisproxytls.rule=Host(`blasbalg.me`)              # * Define URL that will be redirected to this container on port 8080 from https
       - traefik.http.routers.thisproxytls.entrypoints=websecure                     # ^ Just because we defined redirection where any request from the Internet received on port 80 - http will be redirected to port 443 https we open websecure entrypoint as this is from where we will be receiving all the traffick anyway.
       - traefik.http.routers.thisproxytls.service=api@internal                      # ^ Enable WebUI service on this specific router.
       - traefik.http.routers.thisproxytls.middlewares=admin                         # ^ Enabling authentication on this specific router.
-      - traefik.http.routers.thisproxytls.tls.certresolver=letsencrypt  
+      - traefik.http.routers.thisproxytls.tls.certresolver=letsencrypt 
     command:
       - "--api.insecure=true"
       - "--api.dashboard=true"
@@ -40,22 +41,40 @@ services:
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.letsencrypt.acme.email=josh@blasbalg.dev  # replace with your email
       - --certificatesresolvers.letsencrypt.acme.storage=acme/acme.json
-      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
       - --entryPoints.web.http.redirections.entryPoint.to=websecure
       - --entryPoints.web.http.redirections.entryPoint.scheme=https
       - --entryPoints.web.http.redirections.entrypoint.permanent=true
-      - --certificatesResolvers.letsencrypt.acme.dnsChallenge=true # * DNS challenge, there are other ways of proving that you owned domain name defined below (https://doc.traefik.io/traefik/https/acme/#dnschallenge)
       - --certificatesResolvers.letsencrypt.acme.dnsChallenge.provider=cloudflare
-      # - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+      ## Middlewares
+      - "traefik.http.routers.traefik-rtr.middlewares=traefik-headers,middlewares-rate-limit@file,middlewares-basic-auth@file"
+      - "traefik.http.middlewares.traefik-headers.headers.accesscontrolallowmethods=GET, OPTIONS, PUT"
+      - "traefik.http.middlewares.traefik-headers.headers.accesscontrolalloworiginlist=https://${DOMAIN}"
+      - "traefik.http.middlewares.traefik-headers.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.traefik-headers.headers.addvaryheader=true"
+      - "traefik.http.middlewares.traefik-headers.headers.allowedhosts=traefik.${DOMAIN}"
+      - "traefik.http.middlewares.traefik-headers.headers.hostsproxyheaders=X-Forwarded-Host"
+      - "traefik.http.middlewares.traefik-headers.headers.sslredirect=true"
+      - "traefik.http.middlewares.traefik-headers.headers.sslhost=traefik.${DOMAIN}"
+      - "traefik.http.middlewares.traefik-headers.headers.sslforcehost=true"
+      - "traefik.http.middlewares.traefik-headers.headers.sslproxyheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.traefik-headers.headers.stsseconds=63072000"
+      - "traefik.http.middlewares.traefik-headers.headers.stsincludesubdomains=true"
+      - "traefik.http.middlewares.traefik-headers.headers.stspreload=true"
+      - "traefik.http.middlewares.traefik-headers.headers.forcestsheader=true"
+      - "traefik.http.middlewares.traefik-headers.headers.framedeny=true"
+      - "traefik.http.middlewares.traefik-headers.headers.contenttypenosniff=true"
+      - "traefik.http.middlewares.traefik-headers.headers.browserxssfilter=true" 
+      - "traefik.http.middlewares.traefik-headers.headers.referrerpolicy=same-origin"
+      - "traefik.http.middlewares.traefik-headers.headers.featurepolicy=camera 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'; vr 'none';"
+      - "traefik.http.middlewares.traefik-headers.headers.customresponseheaders.X-Robots-Tag=none,noarchive,nosnippet,notranslate,noimageindex,"
     environment:       
       - CF_API_EMAIL=josh@blasbalg.dev               
-      - CF_API_KEY=1167cc8292739efd9fbd64f54c88b6a529777    
+      - CF_API_KEY=${CF_API_KEY}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - acme:/acme
+      - /home/jblasbalg/acme:/acme
       - ./volumes/traefik/logs:/logs  
       - ./volumes/traefik:/traefik 
-    
   whoami:
     image: "traefik/whoami"
     container_name: "simple-service"
@@ -70,6 +89,7 @@ services:
     image: lscr.io/linuxserver/plex:latest
     container_name: plex
     network_mode: host
+    restart: always
     environment:
       - PUID=1000
       - PGID=1000
@@ -84,46 +104,27 @@ services:
       - type: bind
         source: /home/jblasbalg/main-pool/media/gopro
         target: /gopro
-  # postgresql:
-  #   image: postgres:14.1-alpine
-  #   restart: always
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - postgresql2:/var/lib/postgresql/data
-  #   env_file:
-  #     - .env
-  # watchtower:
-  #   image: containrrr/watchtower
-  #   restart: unless-stopped
-  #   volumes:
-  #     - /var/run/docker.sock:/var/run/docker.sock
-  #   # check for updates once an hour (interval is in seconds)
-  #   command: --interval 3600 --cleanup
-  # code-server:
-  #   image: lscr.io/linuxserver/code-server:latest
-  #   container_name: code-server
-  #   environment:
-  #     - PUID=1000
-  #     - PGID=1000
-  #     - PASSWORD=${CODE_PW} 
-  #     - TZ=Europe/London
-  #     - DEFAULT_WORKSPACE=/main-pool #optional
-  #   volumes:
-  #     - /home/jblasbalg/main-pool/docker/appdata/config:/config
-  #     - /home/jblasbalg/main-pool:/main-pool
-  #   ports:
-  #     - "8443:8443"
-  #   restart: unless-stopped
-  #   labels:
-  #     - traefik.http.routers.code-server.rule=Host(`code.${DOMAIN}`)
-  #     - traefik.http.routers.code-server.entrypoints=websecure
-  #     - traefik.http.routers.code-server.tls=true
-  #     - traefik.http.routers.code-server.tls.certresolver=${CERT_RESOLVER}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  tautulli:
+    image: ghcr.io/tautulli/tautulli
+    container_name: tautulli
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /home/jblasbalg/main-pool/media
+        target: /config        
+    environment:
+      - PUID=<uid>
+      - PGID=<gid>
+      - TZ=<timezone>
+    ports:
+      - 8181:8181
   portainer:
     image: portainer/portainer-ce:latest
     command: -H unix:///var/run/docker.sock
     restart: always
+
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/jblasbalg/main-pool/docker/portainer_data:/data
@@ -142,35 +143,72 @@ services:
       - traefik.http.services.edge.loadbalancer.server.port=8000
       - traefik.http.routers.edge.service=edge
       - traefik.http.routers.edge.tls.certresolver=${CERT_RESOLVER}
-  alpine-qbittorrent-openvpn:
+  wireguard:
+    image: thrnz/docker-wireguard-pia
     volumes:
+        # Auth token is stored here
+        - pia:/pia
+        # If enabled, the forwarded port is dumped to /pia-shared/port.dat for potential use in other containers
+        - pia-shared:/pia-shared
+    cap_add:
+        - NET_ADMIN
+        # SYS_MODULE might not be needed with a 5.6+ kernel?
+        - SYS_MODULE
+    # Mounting the tun device may be necessary for userspace implementations
+    #devices:
+    #  - /dev/net/tun:/dev/net/tun
+    environment:
+        # The following env vars are required:
+        - LOC=ca_toronto
+        - USER=p4409344
+        - PASS=V4WuoX24iw
+        # The rest are optional:
+        #- LOCAL_NETWORK=192.168.1.0/24
+        - KEEPALIVE=25
+        - VPNDNS=8.8.8.8,8.8.4.4
+        - PORT_FORWARDING=1
+        #- WG_USERSPACE=1
+    sysctls:
+        # wg-quick fails to set this without --privileged, so set it here instead if needed
+        - net.ipv4.conf.all.src_valid_mark=1
+        # May as well disable ipv6. Should be blocked anyway.
+        - net.ipv6.conf.default.disable_ipv6=1
+        - net.ipv6.conf.all.disable_ipv6=1
+        - net.ipv6.conf.lo.disable_ipv6=1
+    # The container has no recovery logic. Use a healthcheck to catch disconnects.
+    healthcheck:
+        test: ping -c 1 www.google.com || exit 1
+        interval: 30s
+        timeout: 10s
+        retries: 3
+    ports:
+        - "8088:8088"  #qBittorrent
+  qbittorrent:
+    image: linuxserver/qbittorrent
+    container_name: qbittorrent
+    environment:
+      - PGID=1000
+      - PUID=1000
+      - UMASK=022
+      - WEBUI_PORT=8088
+    network_mode: "service:wireguard"
+    restart: always
+    volumes:
+      - ./qbittorrent:/config/qBittorrent/
+      - ./home/jblasbalg/main-pool/media/downloads:/downloads
       - "/home/jblasbalg/main-pool/media/tv:/tv"
       - "/home/jblasbalg/main-pool/media/movies:/movies"
-      - "/home/jblasbalg/main-pool/docker/config:/config"
-      - "/etc/localtime:/etc/localtime:ro"
-    environment:
-      - OPENVPN_PROVIDER=PIA
-      - OPENVPN_CONFIG=ca_toronto
-      - OPENVPN_USERNAME=p4409344
-      - OPENVPN_PASSWORD=V4WuoX24iw
-      - PUID=1000
-      - PGID=1000
-      - LAN=192.168.0.0/16
-    ports:
-      - "8088:8080"
-    cap_add:
-      - NET_ADMIN
-    image: guillaumedsde/alpine-qbittorrent-openvpn:latest
     labels:
       - traefik.enable=true     # ^ Enabling Traefik container to be exposed by itself
       - traefik.http.routers.qbittorrent.rule=Host(`tor.${DOMAIN}`)
       - traefik.http.routers.qbittorrent.entrypoints=websecure
       - traefik.http.routers.qbittorrent.tls=true
       - traefik.http.routers.qbittorrent.tls.certresolver=${CERT_RESOLVER}
+      - traefik.http.services.qbittorrent.loadbalancer.server.port=8088
   scrypted:
-    image: koush/scrypted
+    image: koush/scrypted:latest
     container_name: scrypted
-    restart: unless-stopped
+    restart: always
     network_mode: host
     volumes:
         - ~/.scrypted/volume2:/server/volume
@@ -183,30 +221,64 @@ services:
         options:
             max-size: "10m"
             max-file: "10"
-  unifi-controller:
-    image: lscr.io/linuxserver/unifi-controller:latest
-    container_name: unifi-controller
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Etc/UTC
-    volumes:
-      - unifi:/config
-    ports:
-      - 8443:8443
-      - 3478:3478/udp
-      - 10001:10001/udp
-      - 8081:8080
-      - 1900:1900/udp #optional
-      - 8843:8843 #optional
-      - 8880:8880 #optional
-      - 6789:6789 #optional
-      - 5514:5514/udp #optional
-    restart: unless-stopped
     labels:
-      - traefik.enable=true     # ^ Enabling Traefik container to be exposed by itself
-      - traefik.http.routers.unifi-controller.rule=Host(`unifi.${DOMAIN}`)
-      - traefik.http.routers.unifi-controller.entrypoints=websecure
-      - traefik.http.routers.unifi-controller.tls=true
-      - traefik.http.routers.unifi-controller.tls.certresolver=${CERT_RESOLVER}
-      - traefik.http.services.unifi-controller.loadbalancer.server.port=8443
+        - "com.centurylinklabs.watchtower.enable=true"
+  postgresql:
+    image: docker.io/library/postgres:12-alpine
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    ports:
+      - 5432:5432
+    volumes:
+      - /home/jblasbalg/database:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=${PG_PASS:?database password required}
+      - POSTGRES_USER=${PG_USER:-authentik}
+      - POSTGRES_DB=${PG_DB:-authentik}
+    env_file:
+      - .env
+  redis:
+    image: docker.io/library/redis:alpine
+    command: --save 60 1 --loglevel warning
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    ports:
+      - 6379:6379
+    volumes:
+      - /home/jblasbalg/redis:/data
+  authelia:
+    image: authelia/authelia
+    container_name: authelia
+    volumes:
+      - ./auth:/config
+    labels:
+    - "traefik.enable=true"
+    - "traefik.http.middlewares.authelia.forwardauth.address=http://authelia:9091/api/verify?rd=https://authelia.${DOMAIN}/"
+    - "traefik.http.middlewares.authelia.forwardauth.trustforwardheader=true"
+    - "traefik.http.middlewares.authelia.forwardauth.authresponseheaders=X-Forwarded-User"
+    - "traefik.http.routers.authelia.rule=Host(`authelia.${DOMAIN}`)"
+    - "traefik.http.routers.authelia.entrypoints=websecure"
+    - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
+    - "traefik.http.routers.authelia.service=authelia"
+    - "traefik.http.services.authelia.loadbalancer.server.port=9091"
+    restart: unless-stopped
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nginx.rule=Host(`webserver.${DOMAIN}`)"
+      - "traefik.http.routers.nginx.entrypoints=websecure"
+      - "traefik.http.routers.nginx.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.nginx.middlewares=authelia@docker"
+    restart: unless-stopped

@@ -1,0 +1,9 @@
+users:
+    josh:
+        password: $argon2id$v=19$m=65536,t=3,p=4$x4CbUpotz0os7GI6qgYNIQ$j/WRGciXOqP+KDLPdSxYuDDUyZtoOlYvF/im/N9qDcM
+        displayname: Josh Blasbalg
+        email: josh@blasbalg.dev
+        groups:
+            - admins
+            - dev
+        disabled: false
